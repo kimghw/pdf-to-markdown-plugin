@@ -14,9 +14,10 @@ pdf-to-markdown-plugin/
 │       ├── config.sh            # 경로 설정 (★ 새 프로젝트에서 이것만 수정)
 │       ├── reference.md         # 이 파일
 │       └── scripts/
-│           ├── split_pdf.py     # PDF 분할 (11페이지 이상 → 10페이지씩)
-│           ├── extract_images.py # 이미지 추출 (조각 합침, 벡터 포함)
-│           └── verify_markdown.py # 검증 스크립트
+│           ├── split_pdf.py      # PDF 분할 (11페이지 이상 → 10페이지씩)
+│           ├── extract_images.py  # 이미지 추출 (조각 합침, 벡터 포함)
+│           ├── verify_markdown.py # 검증 스크립트
+│           └── queue_manager.sh   # 공유 큐 관리
 ├── hooks/
 │   ├── hooks.json               # 후크 선언
 │   ├── check-failed-tasks.sh    # Stop 후크
@@ -50,8 +51,15 @@ PLUGIN_DIR="${CLAUDE_PLUGIN_DIR:-...}"
 PDF_DIR="$PROJECT_DIR/KR_강선규칙_2025/분할"
 MD_DIR="$PROJECT_DIR/KR_강선규칙_2025/마크다운"
 IMG_DIR="$MD_DIR/images"
-QUEUE_FILE="$PROJECT_DIR/.claude/pdf-queue.txt"
+QUEUE_DIR="$PROJECT_DIR/.claude/queue"
+QUEUE_PENDING="$QUEUE_DIR/pending"
+QUEUE_PROCESSING="$QUEUE_DIR/processing"
+QUEUE_DONE="$QUEUE_DIR/done"
+QUEUE_FAILED="$QUEUE_DIR/failed"
+INSTANCE_ID="$(hostname -s)_pid-$$"
+STALE_THRESHOLD=1800
 SKILL_DIR="$PLUGIN_DIR/skills/pdf-to-markdown"
+QUEUE_SCRIPT="$SKILL_DIR/scripts/queue_manager.sh"
 ```
 
 ---
@@ -64,7 +72,7 @@ SKILL_DIR="$PLUGIN_DIR/skills/pdf-to-markdown"
 
 | 이벤트 | 스크립트 | 동작 |
 |--------|----------|------|
-| `Stop` | `check-failed-tasks.sh` | 대화 종료 시 변환 현황 보고 |
+| `Stop` | `check-failed-tasks.sh` | 세션 종료 시 작업 반환 및 현황 보고 |
 | `UserPromptSubmit` | `auto-next-batch.sh` | 사용자 메시지 시 큐 상태 안내 |
 | `SubagentStop` | `auto-next-batch.sh` | 에이전트 완료 시 다음 배치 안내 |
 
@@ -75,23 +83,50 @@ SKILL_DIR="$PLUGIN_DIR/skills/pdf-to-markdown"
     ↓
 [SubagentStop 후크 → auto-next-batch.sh]
     ↓
-[큐 상태 출력: "ACTION: 다음 파일들을 실행하세요"]
+[큐 상태 출력: "ACTION: 다음 작업을 할당받아 실행하세요"]
     ↓
-[Claude가 출력을 보고 다음 에이전트 실행]
+[Claude가 queue_manager.sh claim 1 실행]
     ↓
-[큐에서 해당 항목 제거]
+[에이전트 실행 → complete/fail 호출]
+```
+
+### 세션 종료 시 (Stop 후크)
+
+```
+[세션 종료]
+    ↓
+[check-failed-tasks.sh]
+    ↓
+[이 인스턴스의 processing/ 작업 확인]
+    ├─ 마크다운 있음 → done/ 이동
+    └─ 마크다운 없음 → pending/ 반환 (다른 인스턴스가 처리 가능)
+    ↓
+[전체 현황 출력]
 ```
 
 ---
 
-## 작업 큐
+## 공유 큐
 
-### 파일: `$QUEUE_FILE` (config.sh에서 정의)
+### 디렉토리 구조
 
-한 줄에 하나의 파일명 (확장자 제외):
 ```
-강선규칙_0201-0210
-강선규칙_0211-0220
+$PROJECT_DIR/.claude/queue/
+├── pending/       ← 대기 (.task 파일)
+├── processing/    ← 작업 중 (mv로 원자적 할당)
+├── done/          ← 완료
+└── failed/        ← 실패
+```
+
+### .task 파일 형식
+
+```
+pdf=강선규칙_0201-0210.pdf
+created_at=2026-02-13T10:00:00Z
+claimed_by=machine-A_pid-12345
+claimed_at=2026-02-13T10:05:30Z
+completed_at=
+error=
 ```
 
 ### 큐 관리
@@ -99,15 +134,59 @@ SKILL_DIR="$PLUGIN_DIR/skills/pdf-to-markdown"
 source "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/config.sh"
 
 # 큐 초기화
-for pdf in "$PDF_DIR"/*.pdf; do
-  basename=$(basename "$pdf" .pdf)
-  md="$MD_DIR/${basename}.md"
-  [ ! -f "$md" ] && echo "$basename"
-done | sort > "$QUEUE_FILE"
+bash "$QUEUE_SCRIPT" init
 
-# 큐에서 N개 제거
-tail -n +$((N+1)) "$QUEUE_FILE" > /tmp/q.txt && mv /tmp/q.txt "$QUEUE_FILE"
+# 작업 할당 (원자적, 동시 접근 안전)
+bash "$QUEUE_SCRIPT" claim 10
+
+# 작업 완료/실패
+bash "$QUEUE_SCRIPT" complete "강선규칙_0201-0210"
+bash "$QUEUE_SCRIPT" fail "강선규칙_0201-0210" "에러 메시지"
+
+# stale 작업 복구
+bash "$QUEUE_SCRIPT" recover
+
+# 현황 확인
+bash "$QUEUE_SCRIPT" status
 ```
+
+### 동시 접근 안전성
+
+- `mv` 명령으로 원자적 할당: 두 인스턴스가 동시에 같은 파일을 가져가면 하나만 성공
+- 세션 종료 시 해당 인스턴스의 미완료 작업 자동 반환 (다른 인스턴스가 이어서 처리)
+- 30분 초과 stale 작업 자동 복구
+- 각 인스턴스는 `hostname_pid-$$` 형식의 고유 ID로 식별
+
+### 멀티 인스턴스 사용 가이드
+
+동일 PC의 여러 터미널, 또는 클라우드 저장소를 통한 여러 PC에서 동시 작업이 가능합니다.
+
+**사전 조건**:
+- 큐 초기화(`init`)가 최소 한 번 실행된 상태
+
+**시작 방법**:
+```bash
+# 터미널 A (최초 1회)
+cd /path/to/project && claude --plugin-dir ./pdf-to-markdown-plugin
+# → /pdf-to-markdown init  (큐 초기화)
+# → /pdf-to-markdown start (배치 시작)
+
+# 터미널 B, C, ... (추가 인스턴스)
+cd /path/to/project && claude --plugin-dir ./pdf-to-markdown-plugin
+# → /pdf-to-markdown start (init 없이 바로 시작)
+# 또는
+# → /next-batch
+```
+
+**안전 보장**:
+| 시나리오 | 동작 |
+|----------|------|
+| 두 인스턴스가 동시에 같은 작업 할당 시도 | `mv`가 하나만 성공, 나머지 실패 (충돌 없음) |
+| 한 인스턴스가 비정상 종료 | 30분 후 stale 복구 → pending으로 자동 반환 |
+| 한 인스턴스가 정상 종료 | Stop 후크가 미완료 작업을 즉시 pending으로 반환 |
+| 큐 초기화를 여러 번 실행 | 기존 상태 유지, 신규 PDF만 추가 등록 |
+
+**권장 인스턴스 수**: 2~10개
 
 ---
 

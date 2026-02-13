@@ -67,33 +67,62 @@ python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/verify_markdown.py" "
 - 추출된 이미지 개수 (있는 경우)
 - 검증 결과 (커버리지 %, 누락 의심 항목 수)
 
-## 큐 기반 배치 처리
+## 큐 기반 배치 처리 (공유 큐)
 
-여러 PDF를 순차/병렬로 처리할 때는 큐를 사용합니다.
+여러 Claude Code 인스턴스가 동시에 작업할 수 있는 디렉토리 기반 공유 큐입니다.
+동일 PC의 다른 터미널, 또는 클라우드 저장소를 통한 다른 PC에서도 병렬 작업이 가능합니다.
 
-### 큐 파일
-`$CLAUDE_PROJECT_DIR/.claude/pdf-queue.txt` (한 줄에 파일명 하나, 확장자 제외)
+### 멀티 인스턴스 실행 방법
 
-### 큐 초기화
-경로는 `config.sh`에서 읽습니다:
 ```bash
-source "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/config.sh"
-for pdf in "$PDF_DIR"/*.pdf; do
-  basename=$(basename "$pdf" .pdf)
-  md="$MD_DIR/${basename}.md"
-  [ ! -f "$md" ] && echo "$basename"
-done | sort > "$QUEUE_FILE"
+# 터미널 A (최초): 큐 초기화 + 배치 시작
+/pdf-to-markdown init
+/pdf-to-markdown start
+
+# 터미널 B (추가): 초기화 없이 바로 배치 시작
+/pdf-to-markdown start
 ```
 
+- **큐 초기화(`init`)는 최초 1회만** 실행합니다. 이후 추가 터미널에서는 생략하고 바로 `start` 실행
+- `init`을 다시 실행해도 기존 상태가 유지되고 신규 PDF만 추가 등록됩니다
+- 각 인스턴스는 `hostname_pid-$$`로 고유 식별되어 작업 충돌이 발생하지 않습니다
+
+### 큐 구조
+```
+$PROJECT_DIR/.claude/queue/
+├── pending/       ← 대기 (.task 파일)
+├── processing/    ← 작업 중 (mv로 원자적 할당)
+├── done/          ← 완료
+└── failed/        ← 실패
+```
+
+### 큐 관리 스크립트
+모든 큐 작업은 `queue_manager.sh`를 통해 수행합니다:
+```bash
+bash "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/queue_manager.sh" <command>
+```
+
+| 명령 | 설명 |
+|------|------|
+| `init` | 미변환 PDF를 pending/에 등록 |
+| `claim N` | N개 작업을 원자적으로 할당 |
+| `complete name` | 작업 완료 처리 |
+| `fail name msg` | 작업 실패 처리 |
+| `release name` | 작업 반환 (pending으로) |
+| `recover` | stale 작업 자동 복구 (30분 초과) |
+| `status` | 전체 현황 출력 |
+| `migrate` | 레거시 pdf-queue.txt 이전 |
+
 ### 배치 실행
-1. 큐에서 N개 가져오기: `head -N "$CLAUDE_PROJECT_DIR/.claude/pdf-queue.txt"`
+1. 큐에서 N개 할당: `bash "$QUEUE_SCRIPT" claim N`
 2. 각각에 대해 Task 도구로 백그라운드 에이전트 실행
-3. 큐에서 제거: `tail -n +$((N+1)) queue.txt > /tmp/q.txt && mv /tmp/q.txt queue.txt`
+3. 에이전트가 완료 시 `complete`, 실패 시 `fail` 호출
 
 ### 자동 연속 실행 (후크)
-- **SubagentStop 후크**: 에이전트 완료 시 `auto-next-batch.sh` 실행 → 큐에 남은 작업 안내
-- **Claude가 안내를 보고 다음 에이전트 자동 실행**
+- **SubagentStop 후크**: 에이전트 완료 시 큐 상태 안내
+- **Stop 후크**: 세션 종료 시 해당 인스턴스의 미완료 작업을 pending으로 자동 반환 (다른 인스턴스가 이어서 처리 가능)
 - 항상 10개 에이전트가 병렬 실행되도록 유지
+- **stale 복구**: `claim` 시 30분 초과 작업을 자동 감지하여 pending으로 반환
 
 ## 지원 파일
 
@@ -101,6 +130,7 @@ done | sort > "$QUEUE_FILE"
 - [split_pdf.py](scripts/split_pdf.py): PDF 분할 스크립트 (11페이지 이상 → 10페이지씩)
 - [extract_images.py](scripts/extract_images.py): 이미지 추출 스크립트 (조각 합침, 벡터 포함, 캡션 인식)
 - [verify_markdown.py](scripts/verify_markdown.py): PDF-마크다운 검증 스크립트
+- [queue_manager.sh](scripts/queue_manager.sh): 공유 큐 관리 스크립트
 
 ### 설정
 - [config.sh](config.sh): 경로 설정 (새 프로젝트에서 이 파일만 수정)

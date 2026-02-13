@@ -13,8 +13,24 @@ PDF_DIR="$PROJECT_DIR/KR_강선규칙_2025/분할"
 MD_DIR="$PROJECT_DIR/KR_강선규칙_2025/마크다운"
 IMG_DIR="$MD_DIR/images"
 
-# 큐 파일
-QUEUE_FILE="$PROJECT_DIR/.claude/pdf-queue.txt"
+# --- 공유 큐 설정 (디렉토리 기반) ---
+QUEUE_DIR="$PROJECT_DIR/.claude/queue"
+QUEUE_PENDING="$QUEUE_DIR/pending"
+QUEUE_PROCESSING="$QUEUE_DIR/processing"
+QUEUE_DONE="$QUEUE_DIR/done"
+QUEUE_FAILED="$QUEUE_DIR/failed"
+
+# 레거시 큐 파일 (마이그레이션용)
+QUEUE_FILE_LEGACY="$PROJECT_DIR/.claude/pdf-queue.txt"
+
+# 인스턴스 식별자 (호스트명 + PID)
+INSTANCE_ID="$(hostname -s)_pid-$$"
+
+# stale 작업 기준 (초, 기본 30분)
+STALE_THRESHOLD=1800
 
 # 스킬 디렉토리
 SKILL_DIR="$PLUGIN_DIR/skills/pdf-to-markdown"
+
+# 큐 관리 스크립트
+QUEUE_SCRIPT="$SKILL_DIR/scripts/queue_manager.sh"

@@ -1,5 +1,6 @@
 #!/bin/bash
-# 완료된 PDF 변환 작업 중 실패한 항목 확인
+# 세션 종료 시 변환 현황 보고 및 작업 반환
+# (공유 큐 - 디렉토리 기반)
 
 # 설정 로드
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -11,7 +12,35 @@ elif [ -n "$CLAUDE_PLUGIN_DIR" ]; then
     source "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/config.sh"
 fi
 
-# 변환된 마크다운 파일 목록
+# 공유 큐 디렉토리가 있으면 사용
+if [ -d "$QUEUE_DIR" ]; then
+    # 이 인스턴스가 처리중인 작업을 반환
+    for taskfile in "$QUEUE_PROCESSING"/*.task; do
+        [ -f "$taskfile" ] || continue
+        claimed_by=$(grep "^claimed_by=" "$taskfile" 2>/dev/null | cut -d'=' -f2-)
+        if [ "$claimed_by" = "$INSTANCE_ID" ]; then
+            name=$(basename "$taskfile" .task)
+            # 변환이 실제로 완료되었는지 확인
+            md="$MD_DIR/${name}.md"
+            if [ -f "$md" ]; then
+                size=$(stat -c%s "$md" 2>/dev/null || stat -f%z "$md" 2>/dev/null || echo 0)
+                if [ "$size" -ge 1000 ]; then
+                    bash "$QUEUE_SCRIPT" complete "$name" 2>/dev/null
+                    continue
+                fi
+            fi
+            # 미완료 → pending으로 반환
+            bash "$QUEUE_SCRIPT" release "$name" 2>/dev/null
+        fi
+    done
+
+    # 전체 현황 출력
+    bash "$QUEUE_SCRIPT" status
+    exit 0
+fi
+
+# --- 레거시 방식 (큐 디렉토리가 없을 때) ---
+
 converted=()
 failed=()
 
@@ -21,7 +50,6 @@ for pdf in "$PDF_DIR"/*.pdf; do
         md_file="$MD_DIR/${basename}.md"
 
         if [ -f "$md_file" ]; then
-            # 파일 크기 확인 (최소 1KB 이상이어야 정상)
             size=$(stat -f%z "$md_file" 2>/dev/null || stat -c%s "$md_file" 2>/dev/null)
             if [ "$size" -lt 1000 ]; then
                 failed+=("$basename (파일 크기 부족: ${size}B)")
@@ -48,22 +76,5 @@ if [ $total_failed -gt 0 ]; then
     echo "=== 실패/문제 항목 ==="
     for item in "${failed[@]}"; do
         echo "  - $item"
-    done
-fi
-
-if [ $remaining -gt 0 ] && [ $remaining -le 20 ]; then
-    echo ""
-    echo "=== 미처리 항목 (처음 20개) ==="
-    count=0
-    for pdf in "$PDF_DIR"/*.pdf; do
-        basename=$(basename "$pdf" .pdf)
-        md_file="$MD_DIR/${basename}.md"
-        if [ ! -f "$md_file" ]; then
-            echo "  - $basename"
-            count=$((count + 1))
-            if [ $count -ge 20 ]; then
-                break
-            fi
-        fi
     done
 fi

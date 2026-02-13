@@ -1,7 +1,7 @@
 {
   "name": "pdf-to-markdown",
   "description": "PDF 파일을 마크다운으로 변환하고 검증합니다",
-  "version": "2.1.0",
+  "version": "3.1.0",
   "author": {
     "name": "kimghw"
   }
