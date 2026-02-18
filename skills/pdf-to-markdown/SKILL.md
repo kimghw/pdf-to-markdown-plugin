@@ -116,10 +116,13 @@ bash "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/queue_manager.sh" <comma
 | `migrate` | 레거시 pdf-queue.txt 이전 |
 
 ### 배치 실행
-1. AskUserQuestion으로 동시 실행할 에이전트 수를 물어본다 (옵션: 10개(권장), 5개, 3개)
-2. 큐에서 N개 할당: `bash "$QUEUE_SCRIPT" claim N`
+1. AskUserQuestion으로 다음 두 가지를 물어본다 (하나의 AskUserQuestion에 2개 질문):
+   - **동시 실행할 에이전트 수** (옵션: 10개(권장), 5개, 3개)
+   - **이번 세션에서 처리할 총 개수** (옵션: 전체(대기 중인 모든 PDF)(권장), 50개, 10개) — 사용자가 Other로 특정 범위(예: "0101~0200만")를 지정할 수도 있음
+2. 큐에서 N개 할당: `bash "$QUEUE_SCRIPT" claim N` (N = 동시 에이전트 수)
 3. 각각에 대해 Task 도구로 백그라운드 에이전트 실행
 4. 에이전트가 완료 시 `complete`, 실패 시 `fail` 호출
+5. 총 처리 개수에 도달할 때까지 완료된 슬롯에 새 작업을 할당하여 반복
 
 ### 자동 연속 실행 (후크)
 - **SubagentStop 후크**: 에이전트 완료 시 큐 상태 안내
