@@ -48,10 +48,10 @@ pdf-to-markdown-plugin/
 ```bash
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-...}"
 PLUGIN_DIR="${CLAUDE_PLUGIN_DIR:-...}"
-PDF_DIR="$PROJECT_DIR/KR_강선규칙_2025/분할"
-MD_DIR="$PROJECT_DIR/KR_강선규칙_2025/마크다운"
+PDF_DIR="/home/kimghw/kgc/pdf-source/chunks"
+MD_DIR="/home/kimghw/kgc/pdf-source/output"
 IMG_DIR="$MD_DIR/images"
-QUEUE_DIR="$PROJECT_DIR/.claude/queue"
+QUEUE_DIR="/home/kimghw/kgc/.queue"
 QUEUE_PENDING="$QUEUE_DIR/pending"
 QUEUE_PROCESSING="$QUEUE_DIR/processing"
 QUEUE_DONE="$QUEUE_DIR/done"
@@ -111,7 +111,7 @@ QUEUE_SCRIPT="$SKILL_DIR/scripts/queue_manager.sh"
 ### 디렉토리 구조
 
 ```
-$PROJECT_DIR/.claude/queue/
+/home/kimghw/kgc/.queue/
 ├── pending/       ← 대기 (.task 파일)
 ├── processing/    ← 작업 중 (mv로 원자적 할당)
 ├── done/          ← 완료

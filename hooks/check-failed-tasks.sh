@@ -17,7 +17,20 @@ if [ -d "$QUEUE_DIR" ]; then
     # 이 인스턴스가 처리중인 작업을 반환
     for taskfile in "$QUEUE_PROCESSING"/*.task; do
         [ -f "$taskfile" ] || continue
-        claimed_by=$(grep "^claimed_by=" "$taskfile" 2>/dev/null | cut -d'=' -f2-)
+        claimed_by=$(python3 -c "
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        data = json.load(f)
+    print(data.get('claimed_by', ''))
+except (json.JSONDecodeError, ValueError):
+    with open(sys.argv[1]) as f:
+        for line in f:
+            if line.strip().startswith('claimed_by='):
+                print(line.strip().split('=', 1)[1])
+                sys.exit(0)
+    print('')
+" "$taskfile" 2>/dev/null)
         if [ "$claimed_by" = "$INSTANCE_ID" ]; then
             name=$(basename "$taskfile" .task)
             # 변환이 실제로 완료되었는지 확인

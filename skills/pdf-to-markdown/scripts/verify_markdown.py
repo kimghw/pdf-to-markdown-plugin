@@ -230,12 +230,11 @@ class MarkdownVerifier:
                         item_type=chunk_type
                     ))
             else:
-                # 긴 텍스트는 핵심 단어들이 있는지 확인
-                # 70% 이상의 단어가 포함되어 있으면 OK
+                # 긴 텍스트는 모든 단어가 포함되어 있는지 확인
                 found_words = sum(1 for w in words if w in md_text)
                 coverage = found_words / len(words)
 
-                if coverage >= 0.7:
+                if coverage >= 1.0:
                     report.found_chunks += 1
                 else:
                     report.missing_items.append(MissingItem(

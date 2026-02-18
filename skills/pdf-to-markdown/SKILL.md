@@ -1,6 +1,7 @@
 ---
 name: pdf-to-markdown
 description: PDF 파일을 마크다운으로 변환하고 검증합니다. PDF 문서를 마크다운 형식으로 변환하거나, 규칙/규정 문서를 구조화할 때 사용합니다.
+disable-model-invocation: true
 ---
 
 # PDF to Markdown Converter
@@ -35,14 +36,14 @@ python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/split_pdf.py" "$ARGUM
    - 목록은 `-` 또는 숫자 목록 사용
    - 표는 마크다운 표 문법 사용
    - 이미지는 `![설명](images/파일명.png)` 형식
-3. Write 도구로 `마크다운/` 디렉토리에 저장합니다.
+3. Write 도구로 `output/` 디렉토리에 저장합니다.
    - 파일명: PDF 파일명에서 확장자만 `.md`로 변경
 
 ### 2단계: 이미지 추출
 
 extract_images.py로 이미지를 추출합니다 (조각 자동 합침, 벡터 포함, 캡션 인식):
 ```bash
-python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/extract_images.py" "<PDF경로>" -o "마크다운/images" -v
+python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/extract_images.py" "<PDF경로>" -o "$MD_DIR/images" -v
 ```
 
 ### 3단계: 검증
@@ -89,7 +90,7 @@ python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/verify_markdown.py" "
 
 ### 큐 구조
 ```
-$PROJECT_DIR/.claude/queue/
+/home/kimghw/kgc/.queue/
 ├── pending/       ← 대기 (.task 파일)
 ├── processing/    ← 작업 중 (mv로 원자적 할당)
 ├── done/          ← 완료

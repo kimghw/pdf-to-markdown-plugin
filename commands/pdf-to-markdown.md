@@ -46,9 +46,10 @@ cd /path/to/project && claude --plugin-dir ./pdf-to-markdown-plugin
 
 ### 2. 배치 실행
 ```
-/pdf-to-markdown start [개수]
+/pdf-to-markdown start
 ```
-- 기본 10개, 숫자 지정 시 해당 개수만큼 병렬 실행
+- 실행 시 사용자에게 처리 방식을 물어봄 (개수 또는 파일 범위)
+- 지정한 만큼만 처리하고 **정확히 멈춤** (초과 실행 없음)
 - pending/에서 원자적으로 할당 (다른 인스턴스와 충돌 없음)
 - 여러 터미널에서 동시에 실행해도 안전
 
@@ -95,15 +96,44 @@ bash "$QUEUE_SCRIPT" init
 
 ### start 명령
 
+**1단계: 사용자에게 처리 방식 확인**
+
+먼저 현재 큐 상태를 보여주고, AskUserQuestion으로 물어본다:
+
 ```bash
 source "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/config.sh"
-
-# N개 작업을 원자적으로 할당
-RESULT=$(bash "$QUEUE_SCRIPT" claim ${COUNT:-10})
+bash "$QUEUE_SCRIPT" status
 ```
+
+질문: "어떤 방식으로 처리할까요?"
+- **개수 지정**: "몇 개를 처리할까요?" (예: 23)
+- **파일 범위 지정**: "시작 파일과 끝 파일을 알려주세요" (예: 강선규칙_0101-0110 ~ 강선규칙_0330-0340)
+
+**2단계: 작업 할당**
+
+사용자 응답에 따라:
+
+- 개수 지정 시:
+  ```bash
+  RESULT=$(bash "$QUEUE_SCRIPT" claim ${COUNT})
+  ```
+
+- 범위 지정 시:
+  pending/ 목록에서 해당 범위의 파일만 필터링하여 개수를 계산한 뒤 claim한다.
+  ```bash
+  # pending 목록에서 범위 내 파일 확인
+  bash "$QUEUE_SCRIPT" list pending
+  # 범위 내 파일 수를 COUNT로 설정 후 claim
+  RESULT=$(bash "$QUEUE_SCRIPT" claim ${COUNT})
+  ```
 
 RESULT의 첫 줄이 `CLAIMED:N`이면 이후 줄들이 작업 이름입니다.
 `NO_TASKS_AVAILABLE`이면 큐가 비었습니다.
+
+**3단계: 에이전트 실행 (총량 제한)**
+
+claim된 작업 수를 `TOTAL_LIMIT`으로 기록한다.
+동시 병렬은 최대 10개, 총 처리량이 `TOTAL_LIMIT`에 도달하면 **더 이상 claim하지 않고 멈춘다.**
 
 각 작업에 대해 Task 도구로 백그라운드 에이전트를 실행합니다.
 
@@ -158,13 +188,17 @@ PDF: $PDF_DIR/[파일명].pdf
 
 ---
 
-## 자동 연속 실행
+## 자동 연속 실행 (총량 제한 적용)
 
 에이전트 완료 알림을 받으면:
-1. `bash "$QUEUE_SCRIPT" status`로 큐 확인
-2. pending > 0이면 `bash "$QUEUE_SCRIPT" claim 1`로 다음 작업 할당
-3. 에이전트 실행
-4. 항상 10개 에이전트가 병렬 실행되도록 유지
+1. 지금까지 완료(complete + fail)된 작업 수를 카운트
+2. 완료 수 + 현재 processing 수 < `TOTAL_LIMIT`이면:
+   - `bash "$QUEUE_SCRIPT" claim 1`로 다음 작업 할당
+   - 에이전트 실행
+3. `TOTAL_LIMIT`에 도달하면:
+   - **더 이상 claim하지 않고 멈춤**
+   - "지정한 N개 처리 완료" 메시지 출력
+4. 동시 병렬은 최대 10개 유지
 
 ---
 

@@ -59,7 +59,7 @@ def extract_images_from_pdf(pdf_path, output_dir, dpi=300, min_area=5000,
 
     Args:
         pdf_path: PDF 파일 경로
-        output_dir: 이미지 저장 디렉토리
+        output_dir: 이미지 저장 디렉토리 (하위에 PDF명 서브디렉토리 생성)
         dpi: 렌더링 해상도
         min_area: 최소 이미지 영역 (이하 로고/아이콘 제외)
         gap_threshold: 이미지 조각 간 간격 허용치 (pt)
@@ -69,9 +69,12 @@ def extract_images_from_pdf(pdf_path, output_dir, dpi=300, min_area=5000,
     Returns:
         추출된 이미지 파일 경로 리스트
     """
-    os.makedirs(output_dir, exist_ok=True)
     doc = fitz.open(pdf_path)
     basename = os.path.splitext(os.path.basename(pdf_path))[0]
+
+    # 이미지 파일명 충돌 방지: images/<task_name>/ 서브디렉토리 사용
+    task_output_dir = os.path.join(output_dir, basename)
+    os.makedirs(task_output_dir, exist_ok=True)
     extracted = []
 
     for page_num in range(len(doc)):
@@ -145,7 +148,7 @@ def extract_images_from_pdf(pdf_path, output_dir, dpi=300, min_area=5000,
                 # 캡션 없는 경우: PDF파일명_페이지_순번
                 filename = f"{basename}_p{page_num + 1:02d}_{gi + 1:02d}.png"
 
-            filepath = os.path.join(output_dir, filename)
+            filepath = os.path.join(task_output_dir, filename)
             pix.save(filepath)
             extracted.append(filepath)
 

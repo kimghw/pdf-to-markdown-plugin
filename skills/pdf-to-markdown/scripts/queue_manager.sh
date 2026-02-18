@@ -11,7 +11,8 @@
 #   complete <name>   작업 완료 (processing/ → done/)
 #   fail <name> [msg] 작업 실패 (processing/ → failed/)
 #   release <name>    작업 반환 (processing/ → pending/)
-#   recover           stale 작업 복구 (30분 초과)
+#   heartbeat <name>  작업 heartbeat 갱신 (lease 연장)
+#   recover           stale 작업 복구 (lease 만료 기반)
 #   status            전체 현황 출력
 #   list <state>      특정 상태의 작업 목록 (pending|processing|done|failed)
 
@@ -43,35 +44,112 @@ task_file_name() {
     echo "${name%.task}.task"
 }
 
+# --- JSON 기반 .task 파일 헬퍼 (python3 사용) ---
+
+# 소유자 검증: claimed_by가 현재 INSTANCE_ID인지 확인
+verify_owner() {
+    local taskfile="$1"
+    local name="$2"
+    local owner
+    owner=$(read_task_field "$taskfile" "claimed_by")
+    if [ "$owner" != "$INSTANCE_ID" ]; then
+        echo "ERROR: $name 의 소유자가 다릅니다 (owner=$owner, self=$INSTANCE_ID)"
+        echo "  --force 옵션으로 강제 실행 가능"
+        return 1
+    fi
+    return 0
+}
+
 create_task_file() {
     local name="$1"
     local dest="$2"
     local taskfile="$dest/$(task_file_name "$name")"
-    cat > "$taskfile" <<EOF
-pdf=${name}.pdf
-created_at=$(now_iso)
-claimed_by=
-claimed_at=
-completed_at=
-error=
-EOF
+    python3 -c "
+import json, sys
+data = {
+    'pdf': sys.argv[1] + '.pdf',
+    'created_at': sys.argv[2],
+    'claimed_by': '',
+    'claimed_at': '',
+    'completed_at': '',
+    'error': '',
+    'lease_expires_at': '',
+    'heartbeat_at': ''
+}
+with open(sys.argv[3], 'w') as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
+    f.write('\n')
+" "$name" "$(now_iso)" "$taskfile"
 }
 
 update_task_field() {
     local file="$1"
     local field="$2"
     local value="$3"
-    if grep -q "^${field}=" "$file" 2>/dev/null; then
-        sed -i "s|^${field}=.*|${field}=${value}|" "$file"
+    # JSON과 레거시 key=value 모두 지원
+    if python3 -c "
+import json, sys
+fpath, key, val = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    with open(fpath) as f:
+        data = json.load(f)
+    data[key] = val
+    with open(fpath, 'w') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.write('\n')
+except (json.JSONDecodeError, ValueError):
+    # 레거시 key=value 포맷 → JSON으로 마이그레이션
+    data = {}
+    with open(fpath) as f:
+        for line in f:
+            line = line.strip()
+            if '=' in line:
+                k, v = line.split('=', 1)
+                data[k] = v
+    # 새 필드 추가
+    for new_key in ['lease_expires_at', 'heartbeat_at']:
+        if new_key not in data:
+            data[new_key] = ''
+    data[key] = val
+    with open(fpath, 'w') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.write('\n')
+" "$file" "$field" "$value" 2>/dev/null; then
+        return 0
     else
-        echo "${field}=${value}" >> "$file"
+        # python 실패 시 기본 key=value fallback
+        if grep -q "^${field}=" "$file" 2>/dev/null; then
+            sed -i "s|^${field}=.*|${field}=${value}|" "$file"
+        else
+            echo "${field}=${value}" >> "$file"
+        fi
     fi
 }
 
 read_task_field() {
     local file="$1"
     local field="$2"
-    grep "^${field}=" "$file" 2>/dev/null | head -1 | cut -d'=' -f2-
+    # JSON과 레거시 key=value 모두 지원
+    python3 -c "
+import json, sys
+fpath, key = sys.argv[1], sys.argv[2]
+try:
+    with open(fpath) as f:
+        data = json.load(f)
+    print(data.get(key, ''))
+except (json.JSONDecodeError, ValueError, FileNotFoundError):
+    # 레거시 key=value fallback
+    try:
+        with open(fpath) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith(key + '='):
+                    print(line.split('=', 1)[1])
+                    sys.exit(0)
+        print('')
+    except FileNotFoundError:
+        print('')
+" "$file" "$field" 2>/dev/null
 }
 
 # --- 명령어 ---
@@ -191,8 +269,16 @@ cmd_claim() {
 
         # mv로 원자적 할당 시도
         if mv "$taskfile" "$QUEUE_PROCESSING/$taskname" 2>/dev/null; then
+            local now_ts
+            now_ts=$(now_iso)
+            local lease_end
+            lease_end=$(date -u -d "+${LEASE_DURATION} seconds" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || \
+                        date -u -v "+${LEASE_DURATION}S" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || \
+                        echo "")
             update_task_field "$QUEUE_PROCESSING/$taskname" "claimed_by" "$INSTANCE_ID"
-            update_task_field "$QUEUE_PROCESSING/$taskname" "claimed_at" "$(now_iso)"
+            update_task_field "$QUEUE_PROCESSING/$taskname" "claimed_at" "$now_ts"
+            update_task_field "$QUEUE_PROCESSING/$taskname" "heartbeat_at" "$now_ts"
+            update_task_field "$QUEUE_PROCESSING/$taskname" "lease_expires_at" "$lease_end"
             claimed=$((claimed + 1))
             claimed_list="${claimed_list}${base}"$'\n'
         fi
@@ -208,6 +294,7 @@ cmd_claim() {
 
 cmd_complete() {
     local name="$1"
+    local force="${2:-}"
     local taskname
     taskname=$(task_file_name "$name")
     local src="$QUEUE_PROCESSING/$taskname"
@@ -218,6 +305,11 @@ cmd_complete() {
         return 1
     fi
 
+    # 소유자 검증 (--force로 우회 가능)
+    if [ "$force" != "--force" ]; then
+        verify_owner "$src" "$name" || return 1
+    fi
+
     update_task_field "$src" "completed_at" "$(now_iso)"
     mv "$src" "$dst"
     echo "COMPLETED:$name"
@@ -226,6 +318,7 @@ cmd_complete() {
 cmd_fail() {
     local name="$1"
     local msg="${2:-unknown error}"
+    local force="${3:-}"
     local taskname
     taskname=$(task_file_name "$name")
     local src="$QUEUE_PROCESSING/$taskname"
@@ -236,6 +329,11 @@ cmd_fail() {
         return 1
     fi
 
+    # 소유자 검증 (--force로 우회 가능)
+    if [ "$force" != "--force" ]; then
+        verify_owner "$src" "$name" || return 1
+    fi
+
     update_task_field "$src" "error" "$msg"
     update_task_field "$src" "completed_at" "$(now_iso)"
     mv "$src" "$dst"
@@ -244,6 +342,7 @@ cmd_fail() {
 
 cmd_release() {
     local name="$1"
+    local force="${2:-}"
     local taskname
     taskname=$(task_file_name "$name")
     local src="$QUEUE_PROCESSING/$taskname"
@@ -254,10 +353,41 @@ cmd_release() {
         return 1
     fi
 
+    # 소유자 검증 (--force로 우회 가능)
+    if [ "$force" != "--force" ]; then
+        verify_owner "$src" "$name" || return 1
+    fi
+
     update_task_field "$src" "claimed_by" ""
     update_task_field "$src" "claimed_at" ""
+    update_task_field "$src" "lease_expires_at" ""
+    update_task_field "$src" "heartbeat_at" ""
     mv "$src" "$dst"
     echo "RELEASED:$name"
+}
+
+cmd_heartbeat() {
+    local name="$1"
+    local taskname
+    taskname=$(task_file_name "$name")
+    local src="$QUEUE_PROCESSING/$taskname"
+
+    if [ ! -f "$src" ]; then
+        echo "ERROR: $name 이 processing/에 없습니다"
+        return 1
+    fi
+
+    verify_owner "$src" "$name" || return 1
+
+    local now_ts
+    now_ts=$(now_iso)
+    local lease_end
+    lease_end=$(date -u -d "+${LEASE_DURATION} seconds" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || \
+                date -u -v "+${LEASE_DURATION}S" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || \
+                echo "")
+    update_task_field "$src" "heartbeat_at" "$now_ts"
+    update_task_field "$src" "lease_expires_at" "$lease_end"
+    echo "HEARTBEAT:$name (lease until $lease_end)"
 }
 
 cmd_recover() {
@@ -302,16 +432,37 @@ _do_recover() {
             continue
         fi
 
-        # 시간 기반 stale 판단
-        local claimed_epoch
-        claimed_epoch=$(date -d "$claimed_at" +%s 2>/dev/null || echo 0)
+        # lease_expires_at 기반 stale 판단 (우선)
+        local lease_expires
+        lease_expires=$(read_task_field "$taskfile" "lease_expires_at")
+        local is_stale=0
 
-        local age=$((now - claimed_epoch))
-        if [ "$age" -gt "$STALE_THRESHOLD" ]; then
+        if [ -n "$lease_expires" ]; then
+            local lease_epoch
+            lease_epoch=$(date -d "$lease_expires" +%s 2>/dev/null || echo 0)
+            if [ "$now" -gt "$lease_epoch" ] && [ "$lease_epoch" -gt 0 ]; then
+                is_stale=1
+                [ "$verbose" -eq 1 ] && echo "RECOVERED (lease 만료): $basename"
+            fi
+        fi
+
+        # lease가 없으면 기존 claimed_at + STALE_THRESHOLD fallback
+        if [ "$is_stale" -eq 0 ] && [ -z "$lease_expires" ]; then
+            local claimed_epoch
+            claimed_epoch=$(date -d "$claimed_at" +%s 2>/dev/null || echo 0)
+            local age=$((now - claimed_epoch))
+            if [ "$age" -gt "$STALE_THRESHOLD" ]; then
+                is_stale=1
+                [ "$verbose" -eq 1 ] && echo "RECOVERED (stale, ${age}초): $basename"
+            fi
+        fi
+
+        if [ "$is_stale" -eq 1 ]; then
             update_task_field "$taskfile" "claimed_by" ""
             update_task_field "$taskfile" "claimed_at" ""
+            update_task_field "$taskfile" "lease_expires_at" ""
+            update_task_field "$taskfile" "heartbeat_at" ""
             mv "$taskfile" "$QUEUE_PENDING/$taskname"
-            [ "$verbose" -eq 1 ] && echo "RECOVERED (stale, ${age}초): $basename"
             recovered=$((recovered + 1))
         fi
     done
@@ -355,7 +506,13 @@ cmd_status() {
             by=$(read_task_field "$taskfile" "claimed_by")
             local at
             at=$(read_task_field "$taskfile" "claimed_at")
-            echo "  $name  (by: $by, since: $at)"
+            local lease
+            lease=$(read_task_field "$taskfile" "lease_expires_at")
+            if [ -n "$lease" ]; then
+                echo "  $name  (by: $by, since: $at, lease: $lease)"
+            else
+                echo "  $name  (by: $by, since: $at)"
+            fi
         done
     fi
 
@@ -392,18 +549,31 @@ cmd_list() {
 
 # --- 디스패치 ---
 
+# --force 옵션 파싱
+FORCE=""
+ARGS=()
+for arg in "$@"; do
+    if [ "$arg" = "--force" ]; then
+        FORCE="--force"
+    else
+        ARGS+=("$arg")
+    fi
+done
+set -- "${ARGS[@]+"${ARGS[@]}"}"
+
 case "$COMMAND" in
     init)     cmd_init ;;
     migrate)  cmd_migrate ;;
     claim)    cmd_claim "$@" ;;
-    complete) cmd_complete "$@" ;;
-    fail)     cmd_fail "$@" ;;
-    release)  cmd_release "$@" ;;
-    recover)  cmd_recover ;;
-    status)   cmd_status ;;
-    list)     cmd_list "$@" ;;
+    complete)  cmd_complete "${1:-}" "$FORCE" ;;
+    fail)      cmd_fail "${1:-}" "${2:-unknown error}" "$FORCE" ;;
+    release)   cmd_release "${1:-}" "$FORCE" ;;
+    heartbeat) cmd_heartbeat "${1:-}" ;;
+    recover)   cmd_recover ;;
+    status)    cmd_status ;;
+    list)      cmd_list "$@" ;;
     *)
-        echo "사용법: queue_manager.sh <init|migrate|claim|complete|fail|release|recover|status|list>"
+        echo "사용법: queue_manager.sh <init|migrate|claim|complete|fail|release|heartbeat|recover|status|list>"
         exit 1
         ;;
 esac
