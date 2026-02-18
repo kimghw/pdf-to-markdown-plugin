@@ -118,12 +118,28 @@ done
 echo "디렉토리 생성 완료"
 ```
 
-다른 Linux 사용자와 공유하는 경우 그룹 권한을 설정해야 할 수 있다:
+**"같은 PC, 다른 사용자" 시나리오인 경우**, 자동으로 공유 디렉토리에 그룹 쓰기 권한을 설정한다.
+현재 사용자와 협업 사용자가 같은 그룹에 속해 있어야 한다.
 
 ```bash
-# 다른 사용자 시나리오에서만 실행 (사용자 확인 후)
-# chmod -R g+rwX "$SHARED_BASE/pdf-source" "$SHARED_BASE/.queue"
+# 공유 대상 디렉토리들에 그룹 쓰기 + sticky 권한 부여
+chmod -R g+rwX "$SHARED_BASE/pdf-source" "$SHARED_BASE/.queue" 2>/dev/null
+
+# 새로 생성되는 파일/디렉토리도 그룹 쓰기 가능하도록 setgid 설정
+find "$SHARED_BASE/pdf-source" "$SHARED_BASE/.queue" -type d -exec chmod g+s {} \; 2>/dev/null
+
+echo "그룹 쓰기 권한 설정 완료"
+echo ""
+
+# 현재 그룹 확인 및 안내
+CURRENT_GROUP=$(id -gn)
+echo "현재 사용자 그룹: $CURRENT_GROUP"
+echo "협업 사용자도 같은 그룹에 속해야 합니다."
+echo "확인: id <사용자명>"
+echo "추가: sudo usermod -aG $CURRENT_GROUP <사용자명>"
 ```
+
+**"같은 PC, 같은 사용자" 또는 "다른 PC" 시나리오인 경우**, 그룹 권한 설정을 건너뛴다.
 
 ### 5단계: 권한 설정 (settings.local.json)
 

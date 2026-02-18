@@ -124,11 +124,8 @@ bash "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/queue_manager.sh" <comma
 4. 에이전트가 완료 시 `complete`, 실패 시 `fail` 호출
 5. 총 처리 개수에 도달할 때까지 완료된 슬롯에 새 작업을 할당하여 반복
 
-### 자동 연속 실행 (후크)
-- **SubagentStop 후크**: 에이전트 완료 시 큐 상태 안내
-- **Stop 후크**: 세션 종료 시 해당 인스턴스의 미완료 작업을 pending으로 자동 반환 (다른 인스턴스가 이어서 처리 가능)
-- 항상 10개 에이전트가 병렬 실행되도록 유지
-- **stale 복구**: `claim` 시 30분 초과 작업을 자동 감지하여 pending으로 반환
+### stale 복구
+- `claim` 시 30분 초과 작업을 자동 감지하여 pending으로 반환
 
 ## 지원 파일
 
