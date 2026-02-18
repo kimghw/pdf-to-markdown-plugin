@@ -18,74 +18,35 @@ echo "큐: $QUEUE_DIR"
 echo "인스턴스: $INSTANCE_ID"
 ```
 
-## 멀티 인스턴스 동시 사용
+## 실행 로직 (자동 상태 판단)
 
-여러 터미널에서 동시에 작업할 수 있습니다. 각 인스턴스는 PID 기반 고유 ID로 구분되며, `mv` 명령의 원자성으로 동일 작업이 중복 할당되지 않습니다.
+`$ARGUMENTS`가 `init`, `start`, `status`, `recover`, `migrate` 중 하나이면 해당 명령을 직접 실행한다.
+
+**`$ARGUMENTS`가 비어있거나 위 명령이 아닌 경우**, 아래 자동 판단 로직을 실행한다:
+
+### 0단계: 상태 확인
 
 ```bash
-# 터미널 A
-cd /path/to/project && claude --plugin-dir ./pdf-to-markdown-plugin
-
-# 터미널 B (동일 PC, 다른 터미널)
-cd /path/to/project && claude --plugin-dir ./pdf-to-markdown-plugin
+source "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/config.sh"
 ```
 
-각 터미널에서 `/pdf-to-markdown start`를 실행하면 서로 다른 작업을 자동으로 할당받아 병렬 처리합니다.
+다음 3가지 조건을 순서대로 확인한다:
 
-## 사용법
+**조건 A: 큐가 초기화되지 않은 경우** (`$QUEUE_DIR/pending` 디렉토리가 없음)
+→ `init` 실행 후 `start` 로직으로 진행
 
-### 1. 큐 초기화 (처음 1회만)
-```
-/pdf-to-markdown init
-```
-- 큐 디렉토리 생성 (pending/, processing/, done/, failed/)
-- 미변환 PDF를 pending/에 .task 파일로 등록
-- 이미 변환된 PDF는 done/으로 기록
+**조건 B: 대기 작업이 있고 이 인스턴스의 작업중이 0개인 경우**
+→ `start` 로직 실행 (사용자에게 개수/범위 물어봄)
 
-> **주의**: `init`은 프로젝트당 **최초 1회만** 실행합니다. 두 번째 터미널부터는 `init` 없이 바로 `start`를 실행하세요. 이미 초기화된 큐에서 `init`을 다시 실행하면 신규 PDF만 추가 등록되고 기존 상태는 유지됩니다.
+**조건 C: 이 인스턴스에 작업중인 것이 있는 경우**
+→ 현재 상태를 보여주고, 추가 작업을 할당할지 물어봄 (next-batch 로직)
 
-### 2. 배치 실행
-```
-/pdf-to-markdown start
-```
-- 실행 시 사용자에게 처리 방식을 물어봄 (개수 또는 파일 범위)
-- 지정한 만큼만 처리하고 **정확히 멈춤** (초과 실행 없음)
-- pending/에서 원자적으로 할당 (다른 인스턴스와 충돌 없음)
-- 여러 터미널에서 동시에 실행해도 안전
-
-### 3. 상태 확인
-```
-/pdf-to-markdown status
-```
-- 대기/작업중/완료/실패 현황 표시
-- 어떤 인스턴스가 어떤 작업을 처리중인지 표시
-
-### 4. stale 작업 복구
-```
-/pdf-to-markdown recover
-```
-- 30분 이상 processing에 있는 작업을 pending으로 되돌림
-- 마크다운이 이미 생성된 작업은 done으로 이동
-
-### 5. 레거시 큐 이전
-```
-/pdf-to-markdown migrate
-```
-- 기존 pdf-queue.txt를 디렉토리 기반 큐로 이전
-- 이전 완료 후 레거시 파일은 `.migrated` 확장자로 이름 변경
+**조건 D: 대기 작업이 0개인 경우**
+→ "모든 작업이 완료되었습니다" 메시지 출력, status 표시
 
 ---
 
-## 동시 사용 시 주의사항
-
-- **큐 초기화**: 한 터미널에서 `init`을 이미 실행했다면, 다른 터미널에서는 생략하고 바로 `start` 실행
-- **세션 종료**: 각 인스턴스의 Stop 후크가 미완료 작업을 pending/으로 자동 반환
-- **stale 복구**: `claim` 시 30분 초과 작업을 자동 복구하므로 별도 조치 불필요
-- **인스턴스 식별**: `hostname_pid-$$` 형식으로 자동 생성 (충돌 없음)
-
----
-
-## 실행 로직
+## 명시적 명령어
 
 ### init 명령
 
@@ -94,20 +55,29 @@ source "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/config.sh"
 bash "$QUEUE_SCRIPT" init
 ```
 
+- 큐 디렉토리 생성 (pending/, processing/, done/, failed/)
+- 미변환 PDF를 pending/에 .task 파일로 등록
+- 이미 변환된 PDF는 done/으로 기록
+
 ### start 명령
 
 **1단계: 사용자에게 처리 방식 확인**
 
-먼저 현재 큐 상태를 보여주고, AskUserQuestion으로 물어본다:
+먼저 현재 큐 상태를 보여주고, AskUserQuestion으로 다음 두 가지를 **하나의 AskUserQuestion에 2개 질문**으로 물어본다:
 
 ```bash
 source "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/config.sh"
 bash "$QUEUE_SCRIPT" status
 ```
 
-질문: "어떤 방식으로 처리할까요?"
-- **개수 지정**: "몇 개를 처리할까요?" (예: 23)
-- **파일 범위 지정**: "시작 파일과 끝 파일을 알려주세요" (예: 강선규칙_0101-0110 ~ 강선규칙_0330-0340)
+질문 1 — **동시 실행할 에이전트 수**
+- header: "병렬 수"
+- options: 10개(권장), 5개, 3개
+
+질문 2 — **이번 세션에서 처리할 총 개수**
+- header: "처리 범위"
+- options: 전체(대기 중인 모든 PDF)(권장), 50개, 10개
+- 사용자가 Other로 특정 범위(예: "0101~0200만") 또는 숫자를 지정할 수 있음
 
 **2단계: 작업 할당**
 
@@ -115,7 +85,7 @@ bash "$QUEUE_SCRIPT" status
 
 - 개수 지정 시:
   ```bash
-  RESULT=$(bash "$QUEUE_SCRIPT" claim ${COUNT})
+  RESULT=$(bash "$QUEUE_SCRIPT" claim ${동시에이전트수})
   ```
 
 - 범위 지정 시:
@@ -124,7 +94,7 @@ bash "$QUEUE_SCRIPT" status
   # pending 목록에서 범위 내 파일 확인
   bash "$QUEUE_SCRIPT" list pending
   # 범위 내 파일 수를 COUNT로 설정 후 claim
-  RESULT=$(bash "$QUEUE_SCRIPT" claim ${COUNT})
+  RESULT=$(bash "$QUEUE_SCRIPT" claim ${동시에이전트수})
   ```
 
 RESULT의 첫 줄이 `CLAIMED:N`이면 이후 줄들이 작업 이름입니다.
@@ -132,10 +102,8 @@ RESULT의 첫 줄이 `CLAIMED:N`이면 이후 줄들이 작업 이름입니다.
 
 **3단계: 에이전트 실행 (총량 제한)**
 
-claim된 작업 수를 `TOTAL_LIMIT`으로 기록한다.
-동시 병렬은 최대 10개, 총 처리량이 `TOTAL_LIMIT`에 도달하면 **더 이상 claim하지 않고 멈춘다.**
-
-각 작업에 대해 Task 도구로 백그라운드 에이전트를 실행합니다.
+claim된 작업에 대해 Task 도구로 백그라운드 에이전트를 실행합니다.
+동시 병렬은 사용자가 선택한 수, 총 처리량이 `TOTAL_LIMIT`에 도달하면 **더 이상 claim하지 않고 멈춘다.**
 
 ### status 명령
 
@@ -172,15 +140,16 @@ PDF: $PDF_DIR/[파일명].pdf
 
 작업:
 1. Read로 PDF 읽기
-2. 마크다운 변환 (# 제목, ### 조항, **용어**, 표)
+2. 마크다운 변환 (# 제목, ### 조항, **용어**, 표) — 원문 그대로 변환, 요약하거나 생략 금지
 3. Write로 저장
 4. 이미지 추출:
    Bash: python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/extract_images.py" "$PDF_DIR/[파일명].pdf" -o "$IMG_DIR" -v
 5. 검증:
    Bash: python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/verify_markdown.py" "$PDF_DIR/[파일명].pdf" "$MD_DIR/[파일명].md" -v
-6. 완료 시:
+6. 검증 결과 확인: 원문 텍스트 누락이 있으면 수정 후 재검증. 유니코드 차이는 무시.
+7. 완료 시:
    Bash: bash "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/queue_manager.sh" complete "[파일명]"
-7. 실패 시:
+8. 실패 시:
    Bash: bash "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/queue_manager.sh" fail "[파일명]" "에러 설명"
 ```
 
@@ -198,7 +167,17 @@ PDF: $PDF_DIR/[파일명].pdf
 3. `TOTAL_LIMIT`에 도달하면:
    - **더 이상 claim하지 않고 멈춤**
    - "지정한 N개 처리 완료" 메시지 출력
-4. 동시 병렬은 최대 10개 유지
+4. 동시 병렬은 사용자가 선택한 수 유지
+
+---
+
+## 멀티 인스턴스 동시 사용
+
+여러 터미널에서 동시에 작업할 수 있습니다. 각 인스턴스는 PID 기반 고유 ID로 구분되며, `mv` 명령의 원자성으로 동일 작업이 중복 할당되지 않습니다.
+
+- **큐 초기화**: 한 터미널에서 이미 실행했다면, 다른 터미널에서는 `/pdf-to-markdown`만 실행 (자동으로 start 진행)
+- **세션 종료**: 각 인스턴스의 Stop 후크가 미완료 작업을 pending/으로 자동 반환
+- **stale 복구**: `claim` 시 30분 초과 작업을 자동 복구하므로 별도 조치 불필요
 
 ---
 
