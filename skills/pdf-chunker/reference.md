@@ -1,15 +1,15 @@
-# PDF → 마크다운 변환 플러그인 레퍼런스
+# PDF → 청크 JSON 변환 플러그인 레퍼런스
 
 ## 플러그인 구조
 
-공식 Claude Code 플러그인 구조를 따릅니다. `claude --plugin-dir ./pdf-to-markdown-plugin`으로 로드합니다.
+공식 Claude Code 플러그인 구조를 따릅니다. `claude --plugin-dir ./pdf-chunker-plugin`으로 로드합니다.
 
 ```
-pdf-to-markdown-plugin/
+pdf-chunker-plugin/
 ├── .claude-plugin/
 │   └── plugin.json              # 플러그인 매니페스트
 ├── skills/
-│   └── pdf-to-markdown/
+│   └── pdf-chunker/
 │       ├── SKILL.md             # 스킬 정의
 │       ├── config.sh            # 경로 설정 (★ 새 프로젝트에서 이것만 수정)
 │       ├── reference.md         # 이 파일
@@ -23,20 +23,20 @@ pdf-to-markdown-plugin/
 │   ├── check-failed-tasks.sh    # Stop 후크
 │   └── auto-next-batch.sh       # SubagentStop/UserPromptSubmit 후크
 └── commands/
-    ├── pdf-to-markdown.md       # 변환 커맨드
+    ├── convert.md       # 변환 커맨드
     └── next-batch.md            # 배치 실행 커맨드
 ```
 
 ### 새 프로젝트에서 사용하기
 
 1. 플러그인 폴더 복사 또는 `claude plugin install`
-2. `skills/pdf-to-markdown/config.sh`에서 경로 수정:
+2. `skills/pdf-chunker/config.sh`에서 경로 수정:
    ```bash
    PDF_DIR="$PROJECT_DIR/path/to/pdf"
    MD_DIR="$PROJECT_DIR/path/to/markdown"
    IMG_DIR="$MD_DIR/images"
    ```
-3. `claude --plugin-dir ./pdf-to-markdown-plugin`으로 실행
+3. `claude --plugin-dir ./pdf-chunker-plugin`으로 실행
 
 ---
 
@@ -58,7 +58,7 @@ QUEUE_DONE="$QUEUE_DIR/done"
 QUEUE_FAILED="$QUEUE_DIR/failed"
 INSTANCE_ID="$(hostname -s)_pid-$$"
 STALE_THRESHOLD=1800
-SKILL_DIR="$PLUGIN_DIR/skills/pdf-to-markdown"
+SKILL_DIR="$PLUGIN_DIR/skills/pdf-chunker"
 QUEUE_SCRIPT="$SKILL_DIR/scripts/queue_manager.sh"
 ```
 
@@ -131,7 +131,7 @@ error=
 
 ### 큐 관리
 ```bash
-source "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/config.sh"
+source "$CLAUDE_PLUGIN_DIR/skills/pdf-chunker/config.sh"
 
 # 큐 초기화
 bash "$QUEUE_SCRIPT" init
@@ -167,13 +167,13 @@ bash "$QUEUE_SCRIPT" status
 **시작 방법**:
 ```bash
 # 터미널 A (최초 1회)
-cd /path/to/project && claude --plugin-dir ./pdf-to-markdown-plugin
-# → /pdf-to-markdown init  (큐 초기화)
-# → /pdf-to-markdown start (배치 시작)
+cd /path/to/project && claude --plugin-dir ./pdf-chunker-plugin
+# → /pdf-chunker init  (큐 초기화)
+# → /pdf-chunker start (배치 시작)
 
 # 터미널 B, C, ... (추가 인스턴스)
-cd /path/to/project && claude --plugin-dir ./pdf-to-markdown-plugin
-# → /pdf-to-markdown start (init 없이 바로 시작)
+cd /path/to/project && claude --plugin-dir ./pdf-chunker-plugin
+# → /pdf-chunker start (init 없이 바로 시작)
 # 또는
 # → /next-batch
 ```

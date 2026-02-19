@@ -9,9 +9,9 @@ PDF 파일들을 구조화된 청크 JSON으로 변환하는 통합 커맨드입
 
 ## 경로 설정
 
-모든 경로는 `$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/config.sh`에서 관리합니다.
+모든 경로는 `$CLAUDE_PLUGIN_DIR/skills/pdf-chunker/config.sh`에서 관리합니다.
 ```bash
-source "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/config.sh"
+source "$CLAUDE_PLUGIN_DIR/skills/pdf-chunker/config.sh"
 echo "PDF: $PDF_DIR"
 echo "OUT: $MD_DIR"
 echo "큐: $QUEUE_DIR"
@@ -27,7 +27,7 @@ echo "인스턴스: $INSTANCE_ID"
 ### 0단계: 상태 확인
 
 ```bash
-source "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/config.sh"
+source "$CLAUDE_PLUGIN_DIR/skills/pdf-chunker/config.sh"
 ```
 
 다음 3가지 조건을 순서대로 확인한다:
@@ -51,7 +51,7 @@ source "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/config.sh"
 ### init 명령
 
 ```bash
-source "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/config.sh"
+source "$CLAUDE_PLUGIN_DIR/skills/pdf-chunker/config.sh"
 bash "$QUEUE_SCRIPT" init
 ```
 
@@ -66,7 +66,7 @@ bash "$QUEUE_SCRIPT" init
 먼저 현재 큐 상태를 보여주고, AskUserQuestion으로 다음 세 가지를 **하나의 AskUserQuestion에 3개 질문**으로 물어본다:
 
 ```bash
-source "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/config.sh"
+source "$CLAUDE_PLUGIN_DIR/skills/pdf-chunker/config.sh"
 bash "$QUEUE_SCRIPT" status
 ```
 
@@ -113,21 +113,21 @@ claim된 작업에 대해 Task 도구로 백그라운드 에이전트를 실행�
 ### status 명령
 
 ```bash
-source "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/config.sh"
+source "$CLAUDE_PLUGIN_DIR/skills/pdf-chunker/config.sh"
 bash "$QUEUE_SCRIPT" status
 ```
 
 ### recover 명령
 
 ```bash
-source "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/config.sh"
+source "$CLAUDE_PLUGIN_DIR/skills/pdf-chunker/config.sh"
 bash "$QUEUE_SCRIPT" recover
 ```
 
 ### migrate 명령
 
 ```bash
-source "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/config.sh"
+source "$CLAUDE_PLUGIN_DIR/skills/pdf-chunker/config.sh"
 bash "$QUEUE_SCRIPT" migrate
 ```
 
@@ -144,7 +144,7 @@ PDF 파일에서 구조화된 청크 JSON을 직접 생성하세요.
 
 PDF: $PDF_DIR/[파일명].pdf
 청크 JSON 저장: $MD_DIR/[파일명].chunks.json
-청크 스키마: $CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/chunk-schema.md
+청크 스키마: $CLAUDE_PLUGIN_DIR/skills/pdf-chunker/chunk-schema.md
 
 작업:
 1. Read로 PDF 읽기
@@ -172,7 +172,7 @@ PDF: $PDF_DIR/[파일명].pdf
    - null 사용 금지: tables_data는 {}, equations는 [], images/tables/references는 [] 사용
 4. Write로 저장: [파일명].chunks.json
 5. 이미지 추출:
-   Bash: python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/extract_images.py" "$PDF_DIR/[파일명].pdf" -o "$IMG_DIR" -v
+   Bash: python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-chunker/scripts/extract_images.py" "$PDF_DIR/[파일명].pdf" -o "$IMG_DIR" -v
 
 결과 보고는 반드시 아래 한 줄 형식으로만 반환하세요:
 GENERATED [파일명] 이미지N개 청크N개
@@ -222,11 +222,11 @@ Stage 1 (또는 Stage 1.5) 완료 후 별도 에이전트로 실행합니다:
 
 PDF: $PDF_DIR/[파일명].pdf
 청크 JSON: $MD_DIR/[파일명].chunks.json
-청크 스키마: $CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/chunk-schema.md
+청크 스키마: $CLAUDE_PLUGIN_DIR/skills/pdf-chunker/chunk-schema.md
 
 작업:
 1. 스키마/구조 자동 검증:
-   Bash: python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/verify_chunks.py" "$MD_DIR/[파일명].chunks.json" -v
+   Bash: python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-chunker/scripts/verify_chunks.py" "$MD_DIR/[파일명].chunks.json" -v
 2. 스키마/구조 에러가 있으면:
    a. chunks.json을 Read로 읽고, 누락 필드 추가/수정 후 Write로 저장
    b. chunk_seq/split 정합성 수정
@@ -236,10 +236,10 @@ PDF: $PDF_DIR/[파일명].pdf
    b. chunks.json의 text들과 대조하여, PDF 원문에 있는데 chunks에 누락된 텍스트가 없는지 확인
    c. 누락이 있으면 해당 청크의 text에 추가하고 Write로 저장
 4. 모든 검증 통과 시:
-   Bash: bash "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/queue_manager.sh" complete "[파일명]"
+   Bash: bash "$CLAUDE_PLUGIN_DIR/skills/pdf-chunker/scripts/queue_manager.sh" complete "[파일명]"
    → OK 반환
 5. 수정 불가능한 에러 시:
-   Bash: bash "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/queue_manager.sh" fail "[파일명]" "에러 설명"
+   Bash: bash "$CLAUDE_PLUGIN_DIR/skills/pdf-chunker/scripts/queue_manager.sh" fail "[파일명]" "에러 설명"
    → FAIL 반환
 
 결과 보고는 반드시 아래 한 줄 형식으로만 반환하세요:
@@ -288,7 +288,7 @@ Stage 1이 실패하면 코디네이터가 직접 `fail`을 호출합니다.
 
 여러 터미널에서 동시에 작업할 수 있습니다. 각 인스턴스는 PID 기반 고유 ID로 구분되며, `mv` 명령의 원자성으로 동일 작업이 중복 할당되지 않습니다.
 
-- **큐 초기화**: 한 터미널에서 이미 실행했다면, 다른 터미널에서는 `/pdf-to-markdown`만 실행 (자동으로 start 진행)
+- **큐 초기화**: 한 터미널에서 이미 실행했다면, 다른 터미널에서는 `/pdf-chunker`만 실행 (자동으로 start 진행)
 - **세션 종료**: 각 인스턴스의 Stop 후크가 미완료 작업을 pending/으로 자동 반환
 - **stale 복구**: `claim` 시 30분 초과 작업을 자동 복구하므로 별도 조치 불필요
 

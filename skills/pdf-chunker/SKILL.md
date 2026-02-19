@@ -1,5 +1,5 @@
 ---
-name: pdf-to-markdown
+name: pdf-chunker
 description: PDF 파일에서 구조화된 청크 JSON을 직접 생성합니다. 규칙/규정 문서를 검색 가능한 단위로 구조화할 때 사용합니다.
 disable-model-invocation: true
 ---
@@ -18,7 +18,7 @@ PDF 파일에서 구조화된 청크 JSON을 직접 생성합니다.
 각 PDF의 페이지 수를 확인하여 11페이지 이상이면 10페이지씩 분할합니다:
 
 ```bash
-python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/split_pdf.py" "$ARGUMENTS"
+python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-chunker/scripts/split_pdf.py" "$ARGUMENTS"
 ```
 
 분할 결과:
@@ -60,7 +60,7 @@ python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/split_pdf.py" "$ARGUM
 
 extract_images.py로 이미지를 추출합니다 (조각 자동 합침, 벡터 포함, 캡션 인식):
 ```bash
-python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/extract_images.py" "<PDF경로>" -o "$MD_DIR/images" -v
+python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-chunker/scripts/extract_images.py" "<PDF경로>" -o "$MD_DIR/images" -v
 ```
 
 ### 3단계: 검증 (별도 에이전트)
@@ -70,7 +70,7 @@ python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/extract_images.py" "<
 `verify_chunks.py`가 3가지를 한 번에 검증합니다:
 
 ```bash
-python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/verify_chunks.py" "<PDF경로>" "<JSON경로>" -v
+python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-chunker/scripts/verify_chunks.py" "<PDF경로>" "<JSON경로>" -v
 ```
 
 | 검증 항목 | 내용 |
@@ -81,7 +81,7 @@ python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/verify_chunks.py" "<P
 
 스키마만 검증 (PDF 없이):
 ```bash
-python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/verify_chunks.py" --schema-only "<JSON경로>" -v
+python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-chunker/scripts/verify_chunks.py" --schema-only "<JSON경로>" -v
 ```
 
 ### 4단계: 수정 및 재검증 (필요시)
@@ -110,11 +110,11 @@ python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/verify_chunks.py" --s
 
 ```bash
 # 터미널 A (최초): 큐 초기화 + 배치 시작
-/pdf-to-markdown init
-/pdf-to-markdown start
+/pdf-chunker init
+/pdf-chunker start
 
 # 터미널 B (추가): 초기화 없이 바로 배치 시작
-/pdf-to-markdown start
+/pdf-chunker start
 ```
 
 - **큐 초기화(`init`)는 최초 1회만** 실행합니다. 이후 추가 터미널에서는 생략하고 바로 `start` 실행
@@ -133,7 +133,7 @@ python3 "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/verify_chunks.py" --s
 ### 큐 관리 스크립트
 모든 큐 작업은 `queue_manager.sh`를 통해 수행합니다:
 ```bash
-bash "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/scripts/queue_manager.sh" <command>
+bash "$CLAUDE_PLUGIN_DIR/skills/pdf-chunker/scripts/queue_manager.sh" <command>
 ```
 
 | 명령 | 설명 |

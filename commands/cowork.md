@@ -5,7 +5,7 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 # 협업 세팅 — 다른 사용자/구독이 동일 큐로 병렬 작업
 
 다른 Claude 구독, 다른 Linux 사용자, 또는 다른 홈 디렉토리를 가진 터미널에서
-동일한 pdf-to-markdown-plugin과 공유 큐를 사용하여 함께 작업할 수 있도록 설정합니다.
+동일한 pdf-chunker-plugin과 공유 큐를 사용하여 함께 작업할 수 있도록 설정합니다.
 
 ## 전제 조건
 
@@ -33,7 +33,7 @@ if [ -f "$CLAUDE_PROJECT_DIR/.claude/pdf-queue.env" ]; then
 fi
 
 # config.sh 현재 값 확인
-source "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/config.sh"
+source "$CLAUDE_PLUGIN_DIR/skills/pdf-chunker/config.sh"
 echo "=== config.sh 로드 결과 ==="
 echo "PDF_DIR:     $PDF_DIR"
 echo "MD_DIR:      $MD_DIR"
@@ -174,7 +174,7 @@ fi
 ### 6단계: 검증 및 안내
 
 ```bash
-source "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/config.sh"
+source "$CLAUDE_PLUGIN_DIR/skills/pdf-chunker/config.sh"
 
 echo ""
 echo "=== 협업 설정 완료 ==="
@@ -209,11 +209,11 @@ fi
    claude --plugin-dir {플러그인_경로}
 
 3. 초기 설정 (처음 1회):
-   /pdf-to-markdown:setup
+   /pdf-chunker:setup
 
 4. 작업 시작:
-   /pdf-to-markdown status    # 현황 확인
-   /pdf-to-markdown start     # 변환 시작
+   /pdf-chunker status    # 현황 확인
+   /pdf-chunker start     # 변환 시작
 
 각 참여자는 서로 다른 작업을 자동으로 할당받아 병렬 처리합니다.
 동일 작업이 중복 할당되지 않으므로 안심하고 동시에 실행하세요.

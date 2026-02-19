@@ -1,5 +1,5 @@
 #!/bin/bash
-# PDF → 마크다운 변환 플러그인 설정
+# PDF → 청크 JSON 변환 플러그인 설정
 # 새 프로젝트에서 사용 시 이 파일의 경로만 수정하면 됩니다.
 
 # 프로젝트 루트 (자동 감지)
@@ -52,7 +52,7 @@ STALE_THRESHOLD=1800
 LEASE_DURATION=2700
 
 # 스킬 디렉토리
-SKILL_DIR="$PLUGIN_DIR/skills/pdf-to-markdown"
+SKILL_DIR="$PLUGIN_DIR/skills/pdf-chunker"
 
 # 큐 관리 스크립트
 QUEUE_SCRIPT="$SKILL_DIR/scripts/queue_manager.sh"

@@ -2,7 +2,7 @@
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 ---
 
-# PDF → 마크다운 플러그인 초기 설정
+# PDF → 청크 JSON 플러그인 초기 설정
 
 새 프로젝트에서 플러그인을 처음 사용할 때 경로와 권한을 대화형으로 설정합니다.
 
@@ -142,13 +142,13 @@ PLUGIN_CANDIDATES=()
 
 # 2. 프로젝트 내 플러그인 소스 디렉토리
 for candidate in \
-    "$CLAUDE_PROJECT_DIR/pdf-to-markdown-plugin" \
-    "$(pwd)/pdf-to-markdown-plugin"; do
+    "$CLAUDE_PROJECT_DIR/pdf-chunker-plugin" \
+    "$(pwd)/pdf-chunker-plugin"; do
     [ -f "$candidate/.claude-plugin/plugin.json" ] && PLUGIN_CANDIDATES+=("$candidate")
 done
 
 # 3. 플러그인 캐시 디렉토리에서 최신 버전 검색
-CACHE_BASE="$HOME/.claude/plugins/cache/kimghw-plugins/pdf-to-markdown"
+CACHE_BASE="$HOME/.claude/plugins/cache/kimghw-plugins/pdf-chunker"
 if [ -d "$CACHE_BASE" ]; then
     LATEST_CACHE=$(ls -d "$CACHE_BASE"/*/ 2>/dev/null | sort -V | tail -1)
     [ -n "$LATEST_CACHE" ] && [ -f "${LATEST_CACHE}.claude-plugin/plugin.json" ] && \
@@ -205,7 +205,7 @@ fi
 ### 7단계: 설정 검증
 
 ```bash
-source "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/config.sh"
+source "$CLAUDE_PLUGIN_DIR/skills/pdf-chunker/config.sh"
 echo ""
 echo "=== 최종 설정 확인 ==="
 echo "PDF 디렉토리:    $PDF_DIR"
@@ -222,19 +222,19 @@ echo "PDF 파일 수: ${pdf_count}개"
 if [ "$pdf_count" -gt 0 ]; then
     echo ""
     echo "설정 완료! 다음 명령으로 시작하세요:"
-    echo "  /pdf-to-markdown init    # 큐 초기화"
-    echo "  /pdf-to-markdown start   # 변환 시작"
+    echo "  /pdf-chunker init    # 큐 초기화"
+    echo "  /pdf-chunker start   # 변환 시작"
 else
     echo ""
     echo "설정 완료! PDF 파일을 $PDF_DIR 에 넣은 후:"
-    echo "  /pdf-to-markdown init    # 큐 초기화"
-    echo "  /pdf-to-markdown start   # 변환 시작"
+    echo "  /pdf-chunker init    # 큐 초기화"
+    echo "  /pdf-chunker start   # 변환 시작"
 fi
 ```
 
 ## 참고
 
 - 설정 파일 위치: `$CLAUDE_PROJECT_DIR/.claude/pdf-queue.env`
-- 설정을 변경하려면 이 파일을 직접 수정하거나 `/pdf-to-markdown:setup`을 다시 실행
+- 설정을 변경하려면 이 파일을 직접 수정하거나 `/pdf-chunker:setup`을 다시 실행
 - `.claude/pdf-queue.env`는 `.gitignore`에 추가하는 것을 권장 (사용자별 경로가 다를 수 있음)
-- 여러 사용자가 같은 프로젝트를 사용할 때는 `/pdf-to-markdown:cowork`를 참고
+- 여러 사용자가 같은 프로젝트를 사용할 때는 `/pdf-chunker:cowork`를 참고
