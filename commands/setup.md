@@ -123,7 +123,86 @@ else
 fi
 ```
 
-### 6단계: 설정 검증
+### 6단계: 글로벌 alias 설정
+
+모든 사용자가 `claude-kgc` 명령으로 플러그인을 포함하여 실행할 수 있도록 시스템 전역 alias를 등록한다.
+이미 등록되어 있으면 건너뛴다.
+
+먼저 플러그인 경로를 탐색하여 사용자에게 확인한다.
+
+```bash
+ALIAS_FILE="/etc/profile.d/claude-kgc.sh"
+
+# 플러그인 경로 후보 탐색 (우선순위 순)
+PLUGIN_CANDIDATES=()
+
+# 1. CLAUDE_PLUGIN_DIR 환경변수 (캐시 경로일 수 있음)
+[ -n "$CLAUDE_PLUGIN_DIR" ] && [ -f "$CLAUDE_PLUGIN_DIR/.claude-plugin/plugin.json" ] && \
+    PLUGIN_CANDIDATES+=("$CLAUDE_PLUGIN_DIR")
+
+# 2. 프로젝트 내 플러그인 소스 디렉토리
+for candidate in \
+    "$CLAUDE_PROJECT_DIR/pdf-to-markdown-plugin" \
+    "$(pwd)/pdf-to-markdown-plugin"; do
+    [ -f "$candidate/.claude-plugin/plugin.json" ] && PLUGIN_CANDIDATES+=("$candidate")
+done
+
+# 3. 플러그인 캐시 디렉토리에서 최신 버전 검색
+CACHE_BASE="$HOME/.claude/plugins/cache/kimghw-plugins/pdf-to-markdown"
+if [ -d "$CACHE_BASE" ]; then
+    LATEST_CACHE=$(ls -d "$CACHE_BASE"/*/ 2>/dev/null | sort -V | tail -1)
+    [ -n "$LATEST_CACHE" ] && [ -f "${LATEST_CACHE}.claude-plugin/plugin.json" ] && \
+        PLUGIN_CANDIDATES+=("${LATEST_CACHE%/}")
+fi
+
+# 4. 기존 alias 파일에서 경로 추출
+if [ -f "$ALIAS_FILE" ]; then
+    EXISTING_PATH=$(grep -oP "(?<=--plugin-dir )[^ '\"]+|(?<=--plugin-dir ')[^']+" "$ALIAS_FILE")
+    [ -n "$EXISTING_PATH" ] && [ -f "$EXISTING_PATH/.claude-plugin/plugin.json" ] && \
+        PLUGIN_CANDIDATES+=("$EXISTING_PATH")
+fi
+
+# 중복 제거
+PLUGIN_CANDIDATES=($(printf '%s\n' "${PLUGIN_CANDIDATES[@]}" | sort -u))
+
+echo "=== 플러그인 경로 탐색 결과 ==="
+for i in "${!PLUGIN_CANDIDATES[@]}"; do
+    p="${PLUGIN_CANDIDATES[$i]}"
+    ver=$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' "$p/.claude-plugin/plugin.json" 2>/dev/null | grep -o '"[^"]*"$' | tr -d '"')
+    echo "  [$((i+1))] $p (v${ver:-?})"
+done
+
+if [ -f "$ALIAS_FILE" ]; then
+    echo ""
+    echo "기존 alias 파일: $ALIAS_FILE"
+    cat "$ALIAS_FILE"
+fi
+```
+
+탐색 결과를 보여준 후, AskUserQuestion으로 사용할 경로를 확인한다:
+- header: "플러그인 경로"
+- question: "글로벌 alias에 등록할 플러그인 경로를 선택하세요."
+- options: 탐색된 후보들을 나열 (소스 디렉토리 우선 권장)
+- 사용자가 Other로 직접 입력 가능
+
+사용자가 선택한 경로로 alias를 등록한다:
+
+```bash
+PLUGIN_PATH="${사용자가_선택한_경로}"
+
+# 선택한 경로 검증
+if [ ! -f "$PLUGIN_PATH/.claude-plugin/plugin.json" ]; then
+    echo "[ERROR] $PLUGIN_PATH 에 plugin.json이 없습니다. 올바른 플러그인 경로인지 확인하세요."
+else
+    echo "글로벌 alias 등록: claude-kgc → $PLUGIN_PATH"
+    sudo tee "$ALIAS_FILE" > /dev/null << EOF
+alias claude-kgc='claude --plugin-dir $PLUGIN_PATH'
+EOF
+    echo "등록 완료. 새 터미널에서 'claude-kgc'로 실행 가능합니다."
+fi
+```
+
+### 7단계: 설정 검증
 
 ```bash
 source "$CLAUDE_PLUGIN_DIR/skills/pdf-to-markdown/config.sh"

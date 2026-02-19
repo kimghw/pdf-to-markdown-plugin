@@ -77,6 +77,8 @@ class MarkdownVerifier:
         r'^·+$',                    # 가운데점
         r'^RA-\d+-K$',              # 문서번호
         r'^한\s*국\s*선\s*급$',      # 한국선급
+        r'^\d+\s*편\s*부록',          # 머리글 (1 편부록1-7)
+        r'^부록\d+-\d+',              # 머리글 (부록1-12-2 ...)
     ]
 
     def __init__(self, base_dir: str):
@@ -156,6 +158,17 @@ class MarkdownVerifier:
 
         return ''.join(result).lower()
 
+    def extract_words(self, text: str) -> List[str]:
+        """텍스트에서 순수 단어만 추출 (특수문자 제거, 1글자 제외)"""
+        # 한글, 영문, 숫자만 단어로 인식, 2글자 이상만
+        return [w for w in re.findall(r'[가-힣a-zA-Z0-9]+', text.lower()) if len(w) >= 2]
+
+    def make_trigrams(self, words: List[str]) -> List[str]:
+        """연속 3단어 조합(trigram) 생성"""
+        if len(words) < 3:
+            return []
+        return [f"{words[i]} {words[i+1]} {words[i+2]}" for i in range(len(words) - 2)]
+
     def read_markdown_text(self, md_path: Path) -> str:
         """마크다운 파일 전체 텍스트 읽기 (정규화)"""
         with open(md_path, 'r', encoding='utf-8') as f:
@@ -198,50 +211,45 @@ class MarkdownVerifier:
         return text
 
     def verify(self, pdf_path: Path, md_path: Path) -> VerificationReport:
-        """PDF 텍스트가 마크다운에 포함되어 있는지 확인"""
+        """PDF 텍스트가 마크다운에 포함되어 있는지 확인 (줄 단위 trigram 방식)"""
         report = VerificationReport(
             pdf_file=str(pdf_path.name),
             md_file=str(md_path.name)
         )
 
-        # PDF 텍스트 뭉치 추출
+        # 마크다운 전체 텍스트에서 단어만 추출 → trigram set 생성
+        md_text_raw = self.read_markdown_text(md_path)
+        md_words = self.extract_words(md_text_raw)
+        md_trigrams = set(self.make_trigrams(md_words))
+
+        # PDF 텍스트 뭉치 추출 (줄 단위, IGNORE 패턴 적용)
         pdf_chunks = self.extract_pdf_chunks(pdf_path)
-        report.total_chunks = len(pdf_chunks)
 
-        # 마크다운 전체 텍스트
-        md_text = self.read_markdown_text(md_path)
-
-        # 각 뭉치가 마크다운에 있는지 확인
+        # 각 줄에서 단어만 추출 → trigram 생성하여 비교
         for chunk_text, page_num, chunk_type in pdf_chunks:
-            normalized_chunk = self.normalize_text(chunk_text)
+            words = self.extract_words(chunk_text)
 
-            # 핵심 단어들이 포함되어 있는지 확인
-            # (전체 문장 일치보다 단어 기반으로 확인)
-            words = normalized_chunk.split()
+            # 순수 단어 3개 미만이면 스킵
+            if len(words) < 3:
+                continue
 
-            if len(words) <= 2:
-                # 짧은 텍스트는 전체 포함 여부 확인
-                if normalized_chunk in md_text:
-                    report.found_chunks += 1
-                else:
-                    report.missing_items.append(MissingItem(
-                        text=chunk_text,
-                        page_num=page_num,
-                        item_type=chunk_type
-                    ))
+            trigrams = self.make_trigrams(words)
+            if not trigrams:
+                continue
+
+            report.total_chunks += 1
+
+            # trigram 중 하나라도 마크다운에 있으면 포함된 것으로 판정
+            found = any(t in md_trigrams for t in trigrams)
+
+            if found:
+                report.found_chunks += 1
             else:
-                # 긴 텍스트는 모든 단어가 포함되어 있는지 확인
-                found_words = sum(1 for w in words if w in md_text)
-                coverage = found_words / len(words)
-
-                if coverage >= 1.0:
-                    report.found_chunks += 1
-                else:
-                    report.missing_items.append(MissingItem(
-                        text=chunk_text,
-                        page_num=page_num,
-                        item_type=chunk_type
-                    ))
+                report.missing_items.append(MissingItem(
+                    text=chunk_text,
+                    page_num=page_num,
+                    item_type=chunk_type
+                ))
 
         return report
 

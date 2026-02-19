@@ -20,7 +20,7 @@ for _envfile in "$PROJECT_DIR/.claude/pdf-queue.env" "$PROJECT_DIR/.env.pdf-queu
 done
 
 PDF_DIR="${PDF_DIR:-/home/kimghw/kgc/pdf-source/chunks}"
-MD_DIR="${MD_DIR:-/home/kimghw/kgc/pdf-source/output}"
+MD_DIR="${MD_DIR:-/home/kimghw/kgc/pdf-source/output}"  # 청크 JSON 출력 디렉토리 (레거시 변수명 유지)
 IMG_DIR="${IMG_DIR:-$MD_DIR/images}"
 
 # --- 공유 큐 설정 (디렉토리 기반, 절대 경로) ---
